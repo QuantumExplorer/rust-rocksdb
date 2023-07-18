@@ -2125,6 +2125,29 @@ impl<T: ThreadMode, D: DBInner> DBCommon<T, D> {
         drop(cf);
         Ok(())
     }
+
+    fn clear_column_family<C>(
+        &self,
+        cf_inner: *mut ffi::rocksdb_column_family_handle_t,
+        cf_name: &str,
+        opts: &Options,
+    ) -> Result<(), Error> {
+        unsafe {
+            // first mark the column family as dropped
+            ffi_try!(ffi::rocksdb_drop_column_family(
+                self.inner.inner(),
+                cf_inner
+            ));
+        }
+        Ok(unsafe {
+            // then recreate it
+            ffi_try!(ffi::rocksdb_create_column_family(
+                self.inner.inner(),
+                opts.inner,
+                cf_name.as_ptr(),
+            ))
+        })
+    }
 }
 
 impl<I: DBInner> DBCommon<SingleThreaded, I> {
@@ -2141,6 +2164,15 @@ impl<I: DBInner> DBCommon<SingleThreaded, I> {
     pub fn drop_cf(&mut self, name: &str) -> Result<(), Error> {
         if let Some(cf) = self.cfs.cfs.remove(name) {
             self.drop_column_family(cf.inner, cf)
+        } else {
+            Err(Error::new(format!("Invalid column family: {name}")))
+        }
+    }
+
+    /// Drops the column family with the given name
+    pub fn clear_cf(&self, name: &str, new_opts: &Options) -> Result<(), Error> {
+        if let Some(cf) = self.cfs.cfs.get(name) {
+            self.clear_column_family(cf.inner, name, new_opts)
         } else {
             Err(Error::new(format!("Invalid column family: {name}")))
         }
